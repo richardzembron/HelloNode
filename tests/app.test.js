@@ -241,6 +241,37 @@ describe('GET /unknown-route', () => {
   });
 });
 
+// ── environment table ─────────────────────────────────────────────────────────────────────────
+describe('environment table', () => {
+  it('maxuseraccounts row exists with value 1 after migration', async () => {
+    const pool = require('../src/db').getPool();
+    if (!pool) return;
+    const [[row]] = await pool.execute(
+      'SELECT content FROM environment WHERE name = ?', ['maxuseraccounts']
+    );
+    expect(row).toBeDefined();
+    expect(row.content).toBe('1');
+  });
+
+  it('name column is unique', async () => {
+    const pool = require('../src/db').getPool();
+    if (!pool) return;
+    await expect(
+      pool.execute(`INSERT INTO environment (name, content) VALUES ('maxuseraccounts', '999')`)
+    ).rejects.toThrow(/Duplicate entry/i);
+  });
+
+  it('INSERT IGNORE leaves existing value unchanged', async () => {
+    const pool = require('../src/db').getPool();
+    if (!pool) return;
+    await pool.execute(`INSERT IGNORE INTO environment (name, content) VALUES ('maxuseraccounts', '999')`);
+    const [[row]] = await pool.execute(
+      'SELECT content FROM environment WHERE name = ?', ['maxuseraccounts']
+    );
+    expect(row.content).toBe('1');
+  });
+});
+
 // ── useraccounts upsert logic (unit-tested directly) ────────────────────────────────────
 describe('useraccounts upsert SQL', () => {
   it('upsert runs without error when DB is available', async () => {

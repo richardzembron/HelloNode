@@ -45,7 +45,25 @@ async function runMigration() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
-    console.log('✅  Migration complete — hello_log + useraccounts tables ready.');
+    // ── environment ─────────────────────────────────────────────────────────────────────
+    // General-purpose key/value variable table for app-wide settings.
+    // name is unique — use INSERT IGNORE for idempotent seed inserts.
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS environment (
+        id      INT AUTO_INCREMENT PRIMARY KEY,
+        name    VARCHAR(100) NOT NULL,
+        content TEXT         NOT NULL,
+        UNIQUE KEY uq_name (name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Seed default values — INSERT IGNORE skips silently if the row exists
+    await conn.execute(`
+      INSERT IGNORE INTO environment (name, content)
+      VALUES ('maxuseraccounts', '1');
+    `);
+
+    console.log('✅  Migration complete — hello_log, useraccounts, environment tables ready.');
 
   } finally {
     conn.release();
