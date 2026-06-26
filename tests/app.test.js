@@ -235,9 +235,45 @@ describe('GET /dashboard (unauthenticated)', () => {
 });
 
 describe('GET /unknown-route', () => {
-  it('returns 404', async () => {
+  it('returns 404 for unknown routes', async () => {
     const res = await request(app).get('/unknown-route');
     expect(res.statusCode).toBe(404);
+  });
+});
+
+// ── /problem route ─────────────────────────────────────────────────────────────────────────────
+describe('GET /problem', () => {
+  it('returns 200 with HTML', async () => {
+    const res = await request(app).get('/problem?msg=Something+went+wrong');
+    expect(res.statusCode).toBe(200);
+    expect(res.type).toMatch(/html/);
+  });
+  it('contains the sorry heading', async () => {
+    const res = await request(app).get('/problem?msg=test+error');
+    expect(res.text).toMatch(/Sorry, ran into a problem/i);
+  });
+  it('displays the msg parameter in the page', async () => {
+    const res = await request(app).get('/problem?msg=Something+went+wrong');
+    expect(res.text).toContain('Something went wrong');
+  });
+  it('shows Go to Login button when not authenticated', async () => {
+    const res = await request(app).get('/problem?msg=test');
+    expect(res.text).toMatch(/Go to Login/i);
+    expect(res.text).toMatch(/href="\/login"/);
+  });
+  it('uses a default message when msg param is absent', async () => {
+    const res = await request(app).get('/problem');
+    expect(res.statusCode).toBe(200);
+    expect(res.text).toMatch(/unexpected error/i);
+  });
+  it('escapes HTML in msg to prevent XSS', async () => {
+    const res = await request(app).get('/problem?msg=<script>alert(1)</script>');
+    expect(res.text).not.toContain('<script>alert(1)</script>');
+    expect(res.text).toContain('&lt;script&gt;');
+  });
+  it('contains the apologetic emoji', async () => {
+    const res = await request(app).get('/problem?msg=test');
+    expect(res.text).toMatch(/&#x1F64F;/);
   });
 });
 
@@ -252,7 +288,6 @@ describe('environment table', () => {
     expect(row).toBeDefined();
     expect(row.content).toBe('1');
   });
-
   it('name column is unique', async () => {
     const pool = require('../src/db').getPool();
     if (!pool) return;
@@ -260,7 +295,6 @@ describe('environment table', () => {
       pool.execute(`INSERT INTO environment (name, content) VALUES ('maxuseraccounts', '999')`)
     ).rejects.toThrow(/Duplicate entry/i);
   });
-
   it('INSERT IGNORE leaves existing value unchanged', async () => {
     const pool = require('../src/db').getPool();
     if (!pool) return;
@@ -277,36 +311,25 @@ describe('useraccounts upsert SQL', () => {
   it('upsert runs without error when DB is available', async () => {
     const pool = require('../src/db').getPool();
     if (!pool) return;
-
     const [r1] = await pool.execute(`
       INSERT INTO useraccounts
         (google_id, email, name, picture_url, first_login_at, last_login_at, login_count)
       VALUES ('test-google-id-999', 'test@example.com', 'Test User', NULL, NOW(), NOW(), 1)
       ON DUPLICATE KEY UPDATE
-        id            = LAST_INSERT_ID(id),
-        email         = VALUES(email),
-        name          = VALUES(name),
-        picture_url   = VALUES(picture_url),
-        last_login_at = NOW(),
-        login_count   = login_count + 1
+        id = LAST_INSERT_ID(id), email = VALUES(email), name = VALUES(name),
+        picture_url = VALUES(picture_url), last_login_at = NOW(), login_count = login_count + 1
     `);
     expect(r1.insertId).toBeGreaterThan(0);
     const firstId = r1.insertId;
-
     const [r2] = await pool.execute(`
       INSERT INTO useraccounts
         (google_id, email, name, picture_url, first_login_at, last_login_at, login_count)
       VALUES ('test-google-id-999', 'updated@example.com', 'Updated Name', NULL, NOW(), NOW(), 1)
       ON DUPLICATE KEY UPDATE
-        id            = LAST_INSERT_ID(id),
-        email         = VALUES(email),
-        name          = VALUES(name),
-        picture_url   = VALUES(picture_url),
-        last_login_at = NOW(),
-        login_count   = login_count + 1
+        id = LAST_INSERT_ID(id), email = VALUES(email), name = VALUES(name),
+        picture_url = VALUES(picture_url), last_login_at = NOW(), login_count = login_count + 1
     `);
     expect(r2.insertId).toBe(firstId);
-
     const [[row]] = await pool.execute(
       'SELECT email, name, login_count FROM useraccounts WHERE google_id = ?',
       ['test-google-id-999']
@@ -314,26 +337,15 @@ describe('useraccounts upsert SQL', () => {
     expect(row.email).toBe('updated@example.com');
     expect(row.name).toBe('Updated Name');
     expect(row.login_count).toBe(2);
-
     await pool.execute('DELETE FROM useraccounts WHERE google_id = ?', ['test-google-id-999']);
   });
-
   it('google_id column is unique — duplicate insert without ON DUPLICATE KEY throws', async () => {
     const pool = require('../src/db').getPool();
     if (!pool) return;
-
-    await pool.execute(`
-      INSERT INTO useraccounts (google_id, email, name, picture_url, first_login_at, last_login_at, login_count)
-      VALUES ('dup-test-id', 'a@x.com', 'A', NULL, NOW(), NOW(), 1)
-    `);
-
+    await pool.execute(`INSERT INTO useraccounts (google_id, email, name, picture_url, first_login_at, last_login_at, login_count) VALUES ('dup-test-id', 'a@x.com', 'A', NULL, NOW(), NOW(), 1)`);
     await expect(
-      pool.execute(`
-        INSERT INTO useraccounts (google_id, email, name, picture_url, first_login_at, last_login_at, login_count)
-        VALUES ('dup-test-id', 'b@x.com', 'B', NULL, NOW(), NOW(), 1)
-      `)
+      pool.execute(`INSERT INTO useraccounts (google_id, email, name, picture_url, first_login_at, last_login_at, login_count) VALUES ('dup-test-id', 'b@x.com', 'B', NULL, NOW(), NOW(), 1)`)
     ).rejects.toThrow(/Duplicate entry/i);
-
     await pool.execute('DELETE FROM useraccounts WHERE google_id = ?', ['dup-test-id']);
   });
 });
