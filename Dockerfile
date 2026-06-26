@@ -3,9 +3,9 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-# Install dependencies (production only)
-COPY package*.json ./
-RUN npm ci --omit=dev
+# Install production dependencies
+COPY package.json ./
+RUN npm install --omit=dev
 
 # ── Runtime stage ───────────────────────────────────────────────────────────────
 FROM node:20-alpine AS runtime
