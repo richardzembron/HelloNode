@@ -53,7 +53,7 @@ describe('GET /hello', () => {
 });
 
 describe('GET /hellolog', () => {
-  it('returns 200 with JSON containing query_ts, count and entries', async () => {
+  it('returns JSON with query_ts field', async () => {
     const before = new Date();
     const res = await request(app).get('/hellolog');
     const after = new Date();
@@ -67,7 +67,7 @@ describe('GET /hellolog', () => {
     expect(ts.getTime()).toBeLessThanOrEqual(after.getTime() + 10);
   });
 
-  it('returns 503 with query_ts when DB is unavailable (no DB env vars set)', async () => {
+  it('returns 503 with error when DB is unavailable', async () => {
     const res = await request(app).get('/hellolog');
     expect(res.statusCode).toBe(503);
     expect(res.type).toMatch(/json/);
@@ -75,7 +75,7 @@ describe('GET /hellolog', () => {
     expect(res.body.error).toMatch(/database not available/i);
   });
 
-  it('returns correct JSON shape when DB is available (200)', async () => {
+  it('returns correct JSON shape when DB is available', async () => {
     const pool = require('../src/db').getPool();
     if (!pool) return;
 
