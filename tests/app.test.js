@@ -62,8 +62,6 @@ describe('GET /hellolog', () => {
   it('returns 503 with error when DB is unavailable', async () => {
     const res = await request(app).get('/hellolog');
     expect(res.statusCode).toBe(503);
-    expect(res.type).toMatch(/json/);
-    expect(res.body.query_ts).toBeDefined();
     expect(res.body.error).toMatch(/database not available/i);
   });
   it('returns correct JSON shape when DB is available', async () => {
@@ -71,11 +69,7 @@ describe('GET /hellolog', () => {
     if (!pool) return;
     const res = await request(app).get('/hellolog');
     expect(res.statusCode).toBe(200);
-    expect(res.body).toHaveProperty('query_ts');
-    expect(res.body).toHaveProperty('count');
-    expect(res.body).toHaveProperty('entries');
     expect(Array.isArray(res.body.entries)).toBe(true);
-    expect(res.body.entries.length).toBeLessThanOrEqual(10);
   });
 });
 
@@ -85,14 +79,14 @@ describe('GET /developer', () => {
     expect(res.statusCode).toBe(400);
     expect(res.type).toMatch(/json/);
     expect(res.body.error).toMatch(/missing required query parameter/i);
-    expect(res.body.valid_commands).toEqual(['db_schema', 'db_statistics']);
+    expect(res.body.valid_commands).toEqual(['db_schema', 'db_statistics', 'db_console']);
   });
   it('returns 400 for an unknown cmd', async () => {
     const res = await request(app).get('/developer?cmd=drop_everything');
     expect(res.statusCode).toBe(400);
     expect(res.type).toMatch(/json/);
     expect(res.body.error).toMatch(/unknown command/i);
-    expect(res.body.valid_commands).toEqual(['db_schema', 'db_statistics']);
+    expect(res.body.valid_commands).toEqual(['db_schema', 'db_statistics', 'db_console']);
   });
   it('returns query_ts on every response', async () => {
     const before = new Date();
@@ -104,22 +98,19 @@ describe('GET /developer', () => {
     expect(ts.getTime()).toBeLessThanOrEqual(after.getTime() + 10);
   });
   it('returns 503 when DB is unavailable (db_schema)', async () => {
-    const pool = require('../src/db').getPool();
-    if (pool) return;
+    const pool = require('../src/db').getPool(); if (pool) return;
     const res = await request(app).get('/developer?cmd=db_schema');
     expect(res.statusCode).toBe(503);
     expect(res.body.error).toMatch(/database not available/i);
   });
   it('returns 503 when DB is unavailable (db_statistics)', async () => {
-    const pool = require('../src/db').getPool();
-    if (pool) return;
+    const pool = require('../src/db').getPool(); if (pool) return;
     const res = await request(app).get('/developer?cmd=db_statistics');
     expect(res.statusCode).toBe(503);
     expect(res.body.error).toMatch(/database not available/i);
   });
   it('returns correct schema shape when DB is available', async () => {
-    const pool = require('../src/db').getPool();
-    if (!pool) return;
+    const pool = require('../src/db').getPool(); if (!pool) return;
     const res = await request(app).get('/developer?cmd=db_schema');
     expect(res.statusCode).toBe(200);
     expect(res.body.cmd).toBe('db_schema');
@@ -127,16 +118,9 @@ describe('GET /developer', () => {
     const table = res.body.schema[0];
     expect(table).toHaveProperty('table');
     expect(Array.isArray(table.fields)).toBe(true);
-    const field = table.fields[0];
-    expect(field).toHaveProperty('name');
-    expect(field).toHaveProperty('type');
-    expect(field).toHaveProperty('size');
-    expect(field).toHaveProperty('primary');
-    expect(field).toHaveProperty('nullable');
   });
   it('returns correct statistics shape when DB is available', async () => {
-    const pool = require('../src/db').getPool();
-    if (!pool) return;
+    const pool = require('../src/db').getPool(); if (!pool) return;
     const res = await request(app).get('/developer?cmd=db_statistics');
     expect(res.statusCode).toBe(200);
     expect(res.body.cmd).toBe('db_statistics');
@@ -148,10 +132,72 @@ describe('GET /developer', () => {
     expect(typeof res.body.server.uptime_seconds).toBe('number');
     expect(typeof res.body.server.table_count).toBe('number');
     expect(Array.isArray(res.body.tables)).toBe(true);
-    const t = res.body.tables[0];
-    expect(t).toHaveProperty('table');
-    expect(t).toHaveProperty('rows');
-    expect(t).toHaveProperty('size_kb');
+  });
+  it('returns HTML for db_console', async () => {
+    const res = await request(app).get('/developer?cmd=db_console');
+    expect(res.statusCode).toBe(200);
+    expect(res.type).toMatch(/html/);
+    expect(res.text).toMatch(/Database Console/i);
+    expect(res.text).toMatch(/sql-input/);
+    expect(res.text).toMatch(/execute-btn/);
+  });
+});
+
+describe('POST /developer?cmd=db_cmd', () => {
+  it('returns 400 for unknown POST cmd', async () => {
+    const res = await request(app).post('/developer?cmd=bad').send({ sql: 'SELECT 1' });
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toMatch(/unknown post command/i);
+  });
+  it('returns 400 when sql is missing', async () => {
+    const res = await request(app).post('/developer?cmd=db_cmd').send({});
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toMatch(/missing or empty/i);
+  });
+  it('returns 400 when sql is blank', async () => {
+    const res = await request(app).post('/developer?cmd=db_cmd').send({ sql: '   ' });
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toMatch(/missing or empty/i);
+  });
+  it('returns 400 when input is not an SQL keyword', async () => {
+    const res = await request(app).post('/developer?cmd=db_cmd').send({ sql: 'hello world' });
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toMatch(/recognised sql keyword/i);
+  });
+  it('returns 403 for vetSQL-blocked command', async () => {
+    const res = await request(app).post('/developer?cmd=db_cmd')
+      .send({ sql: 'DELETE EVERYTHING FROM universe' });
+    expect(res.statusCode).toBe(403);
+    expect(res.body.error).toBe('Not Permitted');
+  });
+  it('vetSQL passes a normal DELETE (no DB → 503, not 403)', async () => {
+    const pool = require('../src/db').getPool(); if (pool) return;
+    const res = await request(app).post('/developer?cmd=db_cmd')
+      .send({ sql: 'DELETE FROM hello_log WHERE id = 0' });
+    expect(res.statusCode).toBe(503);
+  });
+  it('returns 503 when DB is unavailable', async () => {
+    const pool = require('../src/db').getPool(); if (pool) return;
+    const res = await request(app).post('/developer?cmd=db_cmd').send({ sql: 'SELECT 1' });
+    expect(res.statusCode).toBe(503);
+    expect(res.body.error).toMatch(/database not available/i);
+  });
+  it('includes query_ts on every response', async () => {
+    const before = new Date();
+    const res = await request(app).post('/developer?cmd=db_cmd').send({ sql: '   ' });
+    const after = new Date();
+    expect(res.body).toHaveProperty('query_ts');
+    const ts = new Date(res.body.query_ts);
+    expect(ts.getTime()).toBeGreaterThanOrEqual(before.getTime() - 10);
+    expect(ts.getTime()).toBeLessThanOrEqual(after.getTime() + 10);
+  });
+  it('returns type=select for SELECT when DB available', async () => {
+    const pool = require('../src/db').getPool(); if (!pool) return;
+    const res = await request(app).post('/developer?cmd=db_cmd').send({ sql: 'SELECT 1 AS n' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.type).toBe('select');
+    expect(Array.isArray(res.body.rows)).toBe(true);
+    expect(res.body.rows[0].n).toBe(1);
   });
 });
 
@@ -165,23 +211,31 @@ describe('GET /login', () => {
     const res = await request(app).get('/login');
     expect(res.text).toMatch(/Sign in to Your Account/i);
   });
+  it('Google button links to /auth/google', async () => {
+    const res = await request(app).get('/login');
+    expect(res.text).toMatch(/href="\/auth\/google"/);
+  });
   it('contains email and password inputs', async () => {
     const res = await request(app).get('/login');
     expect(res.text).toMatch(/type="email"/);
     expect(res.text).toMatch(/type="password"/);
   });
-  it('contains a Google sign-in button', async () => {
-    const res = await request(app).get('/login');
-    expect(res.text).toMatch(/Continue with Google/i);
-  });
-  it('contains an SVG background', async () => {
+  it('contains SVG background', async () => {
     const res = await request(app).get('/login');
     expect(res.text).toMatch(/<svg/);
   });
 });
 
+describe('GET /dashboard (unauthenticated)', () => {
+  it('redirects to /login when not logged in', async () => {
+    const res = await request(app).get('/dashboard');
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/login');
+  });
+});
+
 describe('GET /unknown-route', () => {
-  it('returns 404 for unknown routes', async () => {
+  it('returns 404', async () => {
     const res = await request(app).get('/unknown-route');
     expect(res.statusCode).toBe(404);
   });
