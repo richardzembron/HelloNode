@@ -133,8 +133,15 @@ describe('GET /developer', () => {
     expect(typeof res.body.server.table_count).toBe('number');
     expect(Array.isArray(res.body.tables)).toBe(true);
   });
-  it('returns HTML for db_console', async () => {
+  it('redirects to /login for db_console when not authenticated', async () => {
     const res = await request(app).get('/developer?cmd=db_console');
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/login');
+  });
+  it('returns HTML for db_console when authenticated', async () => {
+    const agent = request.agent(app);
+    await agent.post('/auth/test-login');
+    const res = await agent.get('/developer?cmd=db_console');
     expect(res.statusCode).toBe(200);
     expect(res.type).toMatch(/html/);
     expect(res.text).toMatch(/Database Console/i);
@@ -144,47 +151,60 @@ describe('GET /developer', () => {
 });
 
 describe('POST /developer?cmd=db_cmd', () => {
+  it('redirects to /login when not authenticated', async () => {
+    const res = await request(app).post('/developer?cmd=db_cmd').send({ sql: 'SELECT 1' });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/login');
+  });
   it('returns 400 for unknown POST cmd', async () => {
-    const res = await request(app).post('/developer?cmd=bad').send({ sql: 'SELECT 1' });
+    const agent = request.agent(app); await agent.post('/auth/test-login');
+    const res = await agent.post('/developer?cmd=bad').send({ sql: 'SELECT 1' });
     expect(res.statusCode).toBe(400);
     expect(res.body.error).toMatch(/unknown post command/i);
   });
   it('returns 400 when sql is missing', async () => {
-    const res = await request(app).post('/developer?cmd=db_cmd').send({});
+    const agent = request.agent(app); await agent.post('/auth/test-login');
+    const res = await agent.post('/developer?cmd=db_cmd').send({});
     expect(res.statusCode).toBe(400);
     expect(res.body.error).toMatch(/missing or empty/i);
   });
   it('returns 400 when sql is blank', async () => {
-    const res = await request(app).post('/developer?cmd=db_cmd').send({ sql: '   ' });
+    const agent = request.agent(app); await agent.post('/auth/test-login');
+    const res = await agent.post('/developer?cmd=db_cmd').send({ sql: '   ' });
     expect(res.statusCode).toBe(400);
     expect(res.body.error).toMatch(/missing or empty/i);
   });
   it('returns 400 when input is not an SQL keyword', async () => {
-    const res = await request(app).post('/developer?cmd=db_cmd').send({ sql: 'hello world' });
+    const agent = request.agent(app); await agent.post('/auth/test-login');
+    const res = await agent.post('/developer?cmd=db_cmd').send({ sql: 'hello world' });
     expect(res.statusCode).toBe(400);
     expect(res.body.error).toMatch(/recognised sql keyword/i);
   });
   it('returns 403 for vetSQL-blocked command', async () => {
-    const res = await request(app).post('/developer?cmd=db_cmd')
+    const agent = request.agent(app); await agent.post('/auth/test-login');
+    const res = await agent.post('/developer?cmd=db_cmd')
       .send({ sql: 'DELETE EVERYTHING FROM universe' });
     expect(res.statusCode).toBe(403);
     expect(res.body.error).toBe('Not Permitted');
   });
   it('vetSQL passes a normal DELETE (no DB → 503, not 403)', async () => {
     const pool = require('../src/db').getPool(); if (pool) return;
-    const res = await request(app).post('/developer?cmd=db_cmd')
+    const agent = request.agent(app); await agent.post('/auth/test-login');
+    const res = await agent.post('/developer?cmd=db_cmd')
       .send({ sql: 'DELETE FROM hello_log WHERE id = 0' });
     expect(res.statusCode).toBe(503);
   });
   it('returns 503 when DB is unavailable', async () => {
     const pool = require('../src/db').getPool(); if (pool) return;
-    const res = await request(app).post('/developer?cmd=db_cmd').send({ sql: 'SELECT 1' });
+    const agent = request.agent(app); await agent.post('/auth/test-login');
+    const res = await agent.post('/developer?cmd=db_cmd').send({ sql: 'SELECT 1' });
     expect(res.statusCode).toBe(503);
     expect(res.body.error).toMatch(/database not available/i);
   });
   it('includes query_ts on every response', async () => {
+    const agent = request.agent(app); await agent.post('/auth/test-login');
     const before = new Date();
-    const res = await request(app).post('/developer?cmd=db_cmd').send({ sql: '   ' });
+    const res = await agent.post('/developer?cmd=db_cmd').send({ sql: '   ' });
     const after = new Date();
     expect(res.body).toHaveProperty('query_ts');
     const ts = new Date(res.body.query_ts);
@@ -193,7 +213,8 @@ describe('POST /developer?cmd=db_cmd', () => {
   });
   it('returns type=select for SELECT when DB available', async () => {
     const pool = require('../src/db').getPool(); if (!pool) return;
-    const res = await request(app).post('/developer?cmd=db_cmd').send({ sql: 'SELECT 1 AS n' });
+    const agent = request.agent(app); await agent.post('/auth/test-login');
+    const res = await agent.post('/developer?cmd=db_cmd').send({ sql: 'SELECT 1 AS n' });
     expect(res.statusCode).toBe(200);
     expect(res.body.type).toBe('select');
     expect(Array.isArray(res.body.rows)).toBe(true);

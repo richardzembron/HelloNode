@@ -1,7 +1,8 @@
 'use strict';
 
-const { Router } = require('express');
-const { getPool } = require('../db');
+const { Router }   = require('express');
+const { getPool }  = require('../db');
+const requireAuth  = require('../middleware/requireAuth');
 const router = Router();
 
 const MYSQL_RELEASE_DATES = {
@@ -213,6 +214,7 @@ router.get('/', async (req, res) => {
   }
 
   if (cmd === 'db_console') {
+    if (!req.isAuthenticated()) return res.redirect('/login');
     return res.status(200).type('html').send(CONSOLE_HTML);
   }
 
@@ -252,7 +254,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   const query_ts = new Date().toISOString();
   const { cmd }  = req.query;
 

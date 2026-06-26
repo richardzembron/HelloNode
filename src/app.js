@@ -54,6 +54,14 @@ app.use('/auth',      authRouter);
 app.use('/dashboard', dashboardRouter);
 app.use('/problem',   problemRouter);
 
+// Test-only login route — never active in production
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/auth/test-login', (req, res) => {
+    req.session.passport = { user: { googleId: 'test-google-id', email: 'test@example.com', name: 'Test User', picture: null, localId: 1, blocked: false } };
+    res.status(200).json({ ok: true });
+  });
+}
+
 app.get('/', (req, res) => {
   if (req.isAuthenticated()) return res.redirect('/dashboard');
   res.status(200).type('text').send(
