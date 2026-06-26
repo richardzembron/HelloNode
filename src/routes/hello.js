@@ -1,13 +1,15 @@
 'use strict';
 
 const { Router } = require('express');
+const { getPool } = require('../db');
 const router = Router();
 
 /**
  * GET /hello?age=<number>
  * Returns plain text: "Hello World. World is <age> billion years old"
+ * Optionally logs the request to MySQL if DB is available.
  */
-router.get('/hello', (req, res) => {
+router.get('/hello', async (req, res) => {
   const { age } = req.query;
 
   if (age === undefined || age === '') {
@@ -24,9 +26,22 @@ router.get('/hello', (req, res) => {
     );
   }
 
-  return res.status(200).type('text').send(
-    `Hello World. World is ${ageNumber} billion years old`
-  );
+  const message = `Hello World. World is ${ageNumber} billion years old`;
+
+  // Log to DB if available (non-fatal if DB is down)
+  const pool = getPool();
+  if (pool) {
+    try {
+      await pool.execute(
+        'INSERT INTO hello_log (age, message, created_at) VALUES (?, ?, NOW())',
+        [ageNumber, message]
+      );
+    } catch (err) {
+      console.error('DB log error:', err.message);
+    }
+  }
+
+  return res.status(200).type('text').send(message);
 });
 
 /**
@@ -35,7 +50,7 @@ router.get('/hello', (req, res) => {
  */
 router.get('/', (req, res) => {
   res.status(200).type('text').send(
-    'HelloNode is running.\nUsage: GET /hello?age=<number>'
+    `HelloNode is running.\nEnvironment: ${process.env.NODE_ENV || 'development'}\nUsage: GET /hello?age=<number>`
   );
 });
 

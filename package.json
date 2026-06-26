@@ -1,20 +1,22 @@
 {
   "name": "hellonode",
   "version": "1.0.0",
-  "description": "A simple HTTPS Express Hello World app",
+  "description": "A simple HTTPS Express Hello World app with MySQL",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "test": "jest --forceExit --coverage",
+    "migrate": "node src/migrate.js",
     "generate-certs": "node scripts/generate-certs.js"
   },
-  "keywords": ["nodejs", "express", "https", "hello-world"],
+  "keywords": ["nodejs", "express", "https", "hello-world", "mysql"],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "mysql2": "^3.6.5"
   },
   "devDependencies": {
     "jest": "^29.7.0",
