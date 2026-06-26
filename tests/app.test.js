@@ -163,12 +163,20 @@ describe('GET /developer', () => {
     const res = await request(app).get('/developer?cmd=db_statistics');
     expect(res.statusCode).toBe(200);
     expect(res.body.cmd).toBe('db_statistics');
-    expect(Array.isArray(res.body.statistics)).toBe(true);
 
-    const stat = res.body.statistics[0];
-    expect(stat).toHaveProperty('table');
-    expect(stat).toHaveProperty('rows');
-    expect(stat).toHaveProperty('size_kb');
+    expect(res.body).toHaveProperty('server');
+    expect(res.body.server).toHaveProperty('version');
+    expect(res.body.server).toHaveProperty('release_date');
+    expect(res.body.server).toHaveProperty('uptime_seconds');
+    expect(res.body.server).toHaveProperty('table_count');
+    expect(typeof res.body.server.uptime_seconds).toBe('number');
+    expect(typeof res.body.server.table_count).toBe('number');
+
+    expect(Array.isArray(res.body.tables)).toBe(true);
+    const t = res.body.tables[0];
+    expect(t).toHaveProperty('table');
+    expect(t).toHaveProperty('rows');
+    expect(t).toHaveProperty('size_kb');
   });
 });
 
