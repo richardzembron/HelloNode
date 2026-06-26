@@ -240,3 +240,69 @@ describe('GET /unknown-route', () => {
     expect(res.statusCode).toBe(404);
   });
 });
+
+// ── useraccounts upsert logic (unit-tested directly) ────────────────────────────────────
+describe('useraccounts upsert SQL', () => {
+  it('upsert runs without error when DB is available', async () => {
+    const pool = require('../src/db').getPool();
+    if (!pool) return;
+
+    const [r1] = await pool.execute(`
+      INSERT INTO useraccounts
+        (google_id, email, name, picture_url, first_login_at, last_login_at, login_count)
+      VALUES ('test-google-id-999', 'test@example.com', 'Test User', NULL, NOW(), NOW(), 1)
+      ON DUPLICATE KEY UPDATE
+        id            = LAST_INSERT_ID(id),
+        email         = VALUES(email),
+        name          = VALUES(name),
+        picture_url   = VALUES(picture_url),
+        last_login_at = NOW(),
+        login_count   = login_count + 1
+    `);
+    expect(r1.insertId).toBeGreaterThan(0);
+    const firstId = r1.insertId;
+
+    const [r2] = await pool.execute(`
+      INSERT INTO useraccounts
+        (google_id, email, name, picture_url, first_login_at, last_login_at, login_count)
+      VALUES ('test-google-id-999', 'updated@example.com', 'Updated Name', NULL, NOW(), NOW(), 1)
+      ON DUPLICATE KEY UPDATE
+        id            = LAST_INSERT_ID(id),
+        email         = VALUES(email),
+        name          = VALUES(name),
+        picture_url   = VALUES(picture_url),
+        last_login_at = NOW(),
+        login_count   = login_count + 1
+    `);
+    expect(r2.insertId).toBe(firstId);
+
+    const [[row]] = await pool.execute(
+      'SELECT email, name, login_count FROM useraccounts WHERE google_id = ?',
+      ['test-google-id-999']
+    );
+    expect(row.email).toBe('updated@example.com');
+    expect(row.name).toBe('Updated Name');
+    expect(row.login_count).toBe(2);
+
+    await pool.execute('DELETE FROM useraccounts WHERE google_id = ?', ['test-google-id-999']);
+  });
+
+  it('google_id column is unique — duplicate insert without ON DUPLICATE KEY throws', async () => {
+    const pool = require('../src/db').getPool();
+    if (!pool) return;
+
+    await pool.execute(`
+      INSERT INTO useraccounts (google_id, email, name, picture_url, first_login_at, last_login_at, login_count)
+      VALUES ('dup-test-id', 'a@x.com', 'A', NULL, NOW(), NOW(), 1)
+    `);
+
+    await expect(
+      pool.execute(`
+        INSERT INTO useraccounts (google_id, email, name, picture_url, first_login_at, last_login_at, login_count)
+        VALUES ('dup-test-id', 'b@x.com', 'B', NULL, NOW(), NOW(), 1)
+      `)
+    ).rejects.toThrow(/Duplicate entry/i);
+
+    await pool.execute('DELETE FROM useraccounts WHERE google_id = ?', ['dup-test-id']);
+  });
+});
