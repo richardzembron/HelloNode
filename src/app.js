@@ -4,6 +4,7 @@ const express          = require('express');
 const helloRouter      = require('./routes/hello');
 const hellologRouter   = require('./routes/hellolog');
 const developerRouter  = require('./routes/developer');
+const loginRouter      = require('./routes/login');
 
 const app = express();
 
@@ -14,11 +15,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/hello',     helloRouter);
 app.use('/hellolog',  hellologRouter);
 app.use('/developer', developerRouter);
+app.use('/login',     loginRouter);
 
 // Health check
 app.get('/', (req, res) => {
   res.status(200).type('text').send(
-    `HelloNode is running.\nEnvironment: ${process.env.NODE_ENV || 'development'}\nUsage: GET /hello?age=<number> | GET /hellolog | GET /developer?cmd=<command>`
+    `HelloNode is running.\nEnvironment: ${process.env.NODE_ENV || 'development'}\nUsage: GET /hello?age=<number> | GET /hellolog | GET /developer?cmd=<command> | GET /login`
   );
 });
 
