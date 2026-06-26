@@ -7,7 +7,7 @@
 
 ## What this project is
 
-A Node.js + Express web application deployed on **Fly.io** with two environments (test and production). It demonstrates a full stack with Google OAuth login, MySQL-backed sessions, and several API routes. Built entirely within a Claude session.
+A Node.js + Express web application deployed on **Fly.io** with two environments (test and production). It has Google OAuth login, MySQL-backed sessions, a user account table, an environment settings table, and several API + HTML routes. Built entirely within Claude sessions.
 
 ---
 
@@ -34,7 +34,7 @@ A Node.js + Express web application deployed on **Fly.io** with two environments
 
 ## Infrastructure — Fly.io
 
-Four apps on Fly.io (personal account — Richard Zembron):
+Four apps (personal account — Richard Zembron):
 
 | App | Purpose | Region |
 |---|---|---|
@@ -44,19 +44,21 @@ Four apps on Fly.io (personal account — Richard Zembron):
 | `hellonodetest-db` | MySQL 8.0 — test | iad |
 
 - Both MySQL instances have **3 GB encrypted persistent volumes**
-- Both MySQL apps configured with `auto_stop_machines = false` (always-on)
-- HTTPS is automatic via Fly.io edge (Let's Encrypt wildcard `*.fly.dev`)
+- Both MySQL apps: `auto_stop_machines = false` (always-on)
+- Node.js test app: `auto_stop_machines = true` (sleeps when idle, wakes in ~2s)
+- Node.js prod app: `auto_stop_machines = false`, `min_machines_running = 1`
+- HTTPS automatic via Fly.io edge (Let's Encrypt `*.fly.dev`)
 - Node.js apps run plain HTTP on port 3000 internally; Fly terminates TLS
 
 ---
 
 ## Environment Variables (Fly.io secrets — never in code)
 
-Set on **both** `hellonodeprod` and `hellonodetest` (with different values where noted):
+Set on both `hellonodeprod` and `hellonodetest`:
 
 | Variable | Description |
 |---|---|
-| `DB_HOST` | MySQL internal hostname (e.g. `hellonodeprod-db.internal`) |
+| `DB_HOST` | MySQL internal hostname (`hellonodeprod-db.internal`) |
 | `DB_PORT` | `3306` |
 | `DB_USER` | `hellonode` |
 | `DB_PASSWORD` | Random — set via `flyctl secrets set` |
@@ -64,14 +66,16 @@ Set on **both** `hellonodeprod` and `hellonodetest` (with different values where
 | `NODE_ENV` | `production` or `test` |
 | `GOOGLE_CLIENT_ID` | `193301680305-r4tckogncfbjsoekc6i4d3er4uslfep2.apps.googleusercontent.com` |
 | `GOOGLE_CLIENT_SECRET` | Set — do not commit |
-| `GOOGLE_CALLBACK_URL` | `https://hellonodeprod.fly.dev/auth/google/callback` (or test equivalent) |
+| `GOOGLE_CALLBACK_URL` | `https://hellonodeprod.fly.dev/auth/google/callback` (env-specific) |
 | `SESSION_SECRET` | Random 40-char string — different per environment |
 
-**MySQL secrets** set on `hellonodeprod-db` / `hellonodetest-db`:
+MySQL secrets on `hellonodeprod-db` / `hellonodetest-db`:
 `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`
 
-To view: `flyctl secrets list --app hellonodeprod`
-To update: `flyctl secrets set KEY=value --app hellonodeprod`
+```bash
+flyctl secrets list --app hellonodeprod          # view names (not values)
+flyctl secrets set KEY=value --app hellonodeprod # add/update
+```
 
 ---
 
@@ -80,68 +84,101 @@ To update: `flyctl secrets set KEY=value --app hellonodeprod`
 ```
 HelloNode/
 ├── src/
-│   ├── app.js              # Express app — session, passport, routes
+│   ├── app.js              # Express app — trust proxy, session, passport, routes
 │   ├── server.js           # Entry point — auto-migration then start
-│   ├── db.js               # MySQL pool (lazy, falls back gracefully)
-│   ├── migrate.js          # CREATE TABLE IF NOT EXISTS (runs on startup)
+│   ├── db.js               # MySQL pool (lazy, graceful fallback when no DB)
+│   ├── migrate.js          # Creates all tables + seeds environment rows
 │   ├── middleware/
 │   │   └── requireAuth.js  # Blocks unauthenticated requests → /login
 │   └── routes/
-│       ├── hello.js        # GET /hello?age=<n>  — plain text response
-│       ├── hellolog.js     # GET /hellolog       — last 10 DB entries (JSON)
-│       ├── developer.js    # GET /developer?cmd=db_schema|db_statistics
-│       ├── auth.js         # GET /auth/google, /auth/google/callback, /auth/logout
-│       ├── login.js        # GET /login          — blue HTML login page
-│       └── dashboard.js    # GET /dashboard      — protected landing page (HTML)
+│       ├── hello.js        # GET /hello?age=<n>
+│       ├── hellolog.js     # GET /hellolog
+│       ├── developer.js    # GET /developer?cmd=... | POST /developer?cmd=db_cmd
+│       ├── auth.js         # Google OAuth + useraccounts upsert + limit check
+│       ├── login.js        # GET /login
+│       ├── dashboard.js    # GET /dashboard  (protected)
+│       └── problem.js      # GET /problem?msg=<text>
 ├── tests/
-│   └── app.test.js         # 23 Jest + Supertest tests
+│   └── app.test.js         # 45 Jest + Supertest tests
 ├── scripts/
 │   └── generate-certs.js   # Local HTTPS dev certs (openssl)
 ├── fly/
-│   ├── mysql-prod/fly.toml # Fly config for hellonodeprod-db
-│   └── mysql-test/fly.toml # Fly config for hellonodetest-db
-├── Dockerfile              # Multi-stage Node 20 Alpine build
-├── fly.prod.toml           # Fly config for hellonodeprod
-├── fly.test.toml           # Fly config for hellonodetest
+│   ├── mysql-prod/fly.toml
+│   └── mysql-test/fly.toml
+├── Dockerfile
+├── fly.prod.toml
+├── fly.test.toml
 ├── package.json
-└── .env.example
+├── .env.example
+└── CONTEXT.md
 ```
 
 ---
 
 ## Routes Summary
 
-| Route | Auth | Returns | Notes |
-|---|---|---|---|
-| `GET /` | No | Plain text | Redirects to /dashboard if logged in |
-| `GET /login` | No | HTML | Blue login page, Google OAuth button |
-| `GET /auth/google` | No | 302 → Google | Starts OAuth flow |
-| `GET /auth/google/callback` | No | 302 → /dashboard | OAuth callback |
-| `GET /auth/logout` | No | 302 → /login | Destroys session |
-| `GET /dashboard` | **Yes** | HTML | 2×4 icon grid landing page |
-| `GET /hello?age=<n>` | No | Plain text | `Hello World. World is N billion years old` — logs to DB |
-| `GET /hellolog` | No | JSON | Last 10 `hello_log` rows + `query_ts` |
-| `GET /developer?cmd=db_schema` | No | JSON | All tables + field definitions |
-| `GET /developer?cmd=db_statistics` | No | JSON | Row counts, sizes, DB version, uptime |
+| Route | Method | Auth | Returns | Notes |
+|---|---|---|---|---|
+| `/` | GET | No | Text | Redirects to `/dashboard` if logged in |
+| `/login` | GET | No | HTML | Blue login page — Google button → `/auth/google` |
+| `/auth/google` | GET | No | 302 → Google | Starts OAuth flow |
+| `/auth/google/callback` | GET | No | 302 | OAuth callback — checks limit → `/dashboard` or `/problem` |
+| `/auth/logout` | GET | No | 302 → `/login` | Destroys session + clears cookie |
+| `/dashboard` | GET | **Yes** | HTML | 2×4 icon grid landing page; tiles link to `#` (not wired yet) |
+| `/problem?msg=<text>` | GET | No | HTML | General error page — button context-aware (login vs dashboard) |
+| `/hello?age=<n>` | GET | No | Plain text | `Hello World. World is N billion years old` — logs to DB |
+| `/hellolog` | GET | No | JSON | Last 10 `hello_log` rows + `query_ts` |
+| `/developer?cmd=db_schema` | GET | No | JSON | All tables + field definitions |
+| `/developer?cmd=db_statistics` | GET | No | JSON | Row counts, sizes, DB version, uptime, table count |
+| `/developer?cmd=db_console` | GET | No | HTML | Interactive SQL console (dark terminal UI) |
+| `/developer?cmd=db_cmd` | POST | No | JSON | Executes SQL — vetted by `vetSQL()` |
+
+> ⚠️ `/developer` routes have **no auth** — consider adding `requireAuth` before production use.
 
 ---
 
 ## Database Schema
 
+All tables created by `src/migrate.js` on every startup (`CREATE TABLE IF NOT EXISTS` — idempotent).
+
 ```sql
--- Auto-created by src/migrate.js on every startup
-CREATE TABLE IF NOT EXISTS hello_log (
+-- Request log
+CREATE TABLE hello_log (
   id         INT AUTO_INCREMENT PRIMARY KEY,
   age        DECIMAL(10, 3) NOT NULL,
   message    VARCHAR(255)   NOT NULL,
   created_at DATETIME       NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+);
+
+-- Google OAuth users — one row per account
+CREATE TABLE useraccounts (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  google_id       VARCHAR(64)   NOT NULL,  -- permanent Google ID — never changes
+  email           VARCHAR(255)  NOT NULL,  -- overwritten every login
+  name            VARCHAR(255)  NOT NULL,  -- overwritten every login
+  picture_url     VARCHAR(500)  DEFAULT NULL, -- overwritten every login
+  first_login_at  DATETIME      NOT NULL,  -- set once, never updated
+  last_login_at   DATETIME      NOT NULL,  -- updated every login
+  login_count     INT UNSIGNED  NOT NULL DEFAULT 1,
+  UNIQUE KEY uq_google_id (google_id)
+);
+
+-- App-wide key/value settings
+CREATE TABLE environment (
+  id      INT AUTO_INCREMENT PRIMARY KEY,
+  name    VARCHAR(100) NOT NULL,
+  content TEXT         NOT NULL,
+  UNIQUE KEY uq_name (name)
+);
+
+-- Seeded rows (INSERT IGNORE — safe to re-run)
+INSERT IGNORE INTO environment (name, content) VALUES ('maxuseraccounts', '1');
 
 -- Auto-created by express-mysql-session
-CREATE TABLE IF NOT EXISTS sessions (
+CREATE TABLE sessions (
   session_id  VARCHAR(128) NOT NULL PRIMARY KEY,
   expires     INT UNSIGNED NOT NULL,
-  data        MEDIUMTEXT         -- JSON: passport user object
+  data        MEDIUMTEXT
 );
 ```
 
@@ -153,10 +190,84 @@ CREATE TABLE IF NOT EXISTS sessions (
 - **Sessions:** `express-session` + `express-mysql-session` (stored in MySQL)
 - **Cookie name:** `hellonode.sid` — HttpOnly, Secure (prod), SameSite=Lax, 24h
 - **Key setting:** `app.set('trust proxy', 1)` — required for Fly.io HTTPS edge
-  (without it, `req.secure=false` and session cookies are never sent)
-- `serializeUser` / `deserializeUser` store the full user object `{ googleId, email, name, picture }`
-- Google OAuth app registered at https://console.cloud.google.com
-- Authorised redirect URIs registered for both test and prod callback URLs
+- `serializeUser` / `deserializeUser` store full user object in session
+
+### Session user object (`req.user`)
+```js
+{
+  googleId: "117834291048573920154",  // permanent Google ID
+  email:    "user@gmail.com",
+  name:     "Full Name",
+  picture:  "https://lh3.googleusercontent.com/...",
+  localId:  42,          // row id in useraccounts table
+  blocked:  false,       // true if maxuseraccounts limit was hit
+}
+```
+
+### Login flow with maxuseraccounts check
+```
+1. User clicks "Continue with Google" → /auth/google
+2. Google OAuth → /auth/google/callback
+3. Passport verifies profile
+4. Check if google_id exists in useraccounts:
+   - Existing user → upsert (update fields) → /dashboard
+   - New user → check environment.maxuseraccounts vs COUNT(useraccounts)
+       - count >= max → user.blocked = true → /problem?msg=Sorry...
+       - count < max  → upsert (insert) → /dashboard
+5. Session created, cookie set
+```
+
+To allow more users:
+```sql
+UPDATE environment SET content = '10' WHERE name = 'maxuseraccounts';
+```
+
+---
+
+## Developer Routes
+
+### `GET /developer?cmd=db_console`
+Returns an interactive HTML SQL console. Dark terminal UI, same background as dashboard.
+- SQL input textarea (Ctrl+Enter to run)
+- Results displayed as formatted text table
+- Calls `POST /developer?cmd=db_cmd` via `fetch`
+
+### `POST /developer?cmd=db_cmd`
+Executes SQL against the database.
+
+**Request:** `{ "sql": "SELECT * FROM hello_log LIMIT 5" }`
+
+**Response types:**
+- `{ type: "select", rows: [...], rowCount: N }` — SELECT/SHOW/DESCRIBE
+- `{ type: "write", affectedRows: N, insertId: N }` — INSERT/UPDATE/DELETE
+- `{ type: "ddl", message: "Query executed successfully" }` — CREATE/ALTER/DROP
+- `{ error: "..." }` — DB errors (HTTP 200, shown as result in console)
+- HTTP 400 — missing/blank SQL, not an SQL keyword
+- HTTP 403 — blocked by `vetSQL()`
+- HTTP 503 — DB unavailable
+
+### `vetSQL(sql)` — security gate (`src/routes/developer.js`)
+```js
+function vetSQL(sql) {
+  const upper = sql.trim().toUpperCase();
+  if (upper.startsWith('DELETE EVERYTHING')) return false;
+  return true;
+  // Expand this function to add stricter rules
+}
+```
+
+---
+
+## Problem Page
+
+`GET /problem?msg=<url-encoded-text>`
+
+- Blue background (same as dashboard/login)
+- 🙏 emoji in 128×128 tile
+- `"Sorry, ran into a problem"` heading
+- `msg` parameter displayed (HTML-escaped — XSS safe)
+- Smart button: logged in → **"Go to Dashboard"**, not logged in → **"Go to Login"**
+- Default message if `msg` absent: `"An unexpected error occurred."`
 
 ---
 
@@ -164,13 +275,17 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 | Decision | Reason |
 |---|---|
+| `app.set('trust proxy', 1)` | Fly.io terminates TLS at edge; without this `req.secure=false` and session cookies fail |
 | `npm install` not `npm ci` | No `package-lock.json` committed |
-| `trust proxy: 1` | Fly.io terminates TLS at edge; app runs HTTP internally |
 | `auto_stop_machines = false` on MySQL | Databases must not sleep |
 | Lazy DB pool (`getPool()`) | Tests run without DB — pool returns null, routes degrade gracefully |
-| Migration on startup | Idempotent `CREATE TABLE IF NOT EXISTS` — no manual migration step |
-| Separate session secret per env | Prod and test sessions are fully isolated |
-| `GOOGLE_CALLBACK_URL` as env var | Same codebase, different callback per environment |
+| Migration on startup | Idempotent `CREATE TABLE IF NOT EXISTS` — no manual step needed |
+| `INSERT IGNORE` for seed data | Re-running migration never overwrites values changed at runtime |
+| `LAST_INSERT_ID(id)` in upsert | Returns existing row's id reliably on `ON DUPLICATE KEY UPDATE` |
+| Separate `SESSION_SECRET` per env | Prod and test sessions fully isolated |
+| `vetSQL()` placeholder | SQL execution gated — expand with stricter rules later |
+| HTML-escape on `/problem` | XSS prevention — `msg` param is user-visible |
+| `user.blocked` flag | Set in passport strategy; checked in route handler to redirect to `/problem` |
 
 ---
 
@@ -182,24 +297,24 @@ cd HelloNode
 npm install
 cp .env.example .env        # fill in DB_* and SESSION_SECRET
 npm run generate-certs       # optional — needs openssl
-npm start                    # runs on http://localhost:3000 (or https://:3443 with certs)
-npm test                     # 23 tests, no DB required
+npm start                    # http://localhost:3000 (or https://:3443 with certs)
+npm test                     # 45 tests, no DB required
 ```
 
 ---
 
 ## Deployment Workflow
 
-```
+```bash
 # Deploy to test only:
 git checkout test
-git merge main               # or make changes directly
-git push origin test         # → GitHub Actions runs tests → deploys to hellonodetest
+git merge main               # or make changes directly on test
+git push origin test         # → CI tests → deploy to hellonodetest
 
 # Promote test → production:
 git checkout main
 git merge test
-git push origin main         # → GitHub Actions runs tests → deploys to hellonodeprod
+git push origin main         # → CI tests → deploy to hellonodeprod
 ```
 
 ---
@@ -209,9 +324,9 @@ git push origin main         # → GitHub Actions runs tests → deploys to hell
 ```bash
 flyctl logs --app hellonodeprod          # live logs
 flyctl status --app hellonodeprod        # machine health
+flyctl machine list --app hellonodeprod  # image versions per machine
 flyctl secrets list --app hellonodeprod  # list secret names (not values)
-flyctl secrets set KEY=val --app hellonodeprod  # add/update a secret
-flyctl machine list --app hellonodeprod  # see running machines + image versions
+flyctl secrets set KEY=val --app hellonodeprod
 flyctl apps list                         # all 4 apps
 ```
 
@@ -220,17 +335,24 @@ flyctl apps list                         # all 4 apps
 ## What Works (as of last session)
 
 - ✅ Google OAuth login on both test and prod
-- ✅ Server-side sessions stored in MySQL
-- ✅ Protected `/dashboard` landing page with 2×4 icon grid
-- ✅ `/hello`, `/hellolog`, `/developer` routes
-- ✅ MySQL auto-migration on startup
-- ✅ GitHub Actions CI/CD pipeline
+- ✅ Server-side sessions stored in MySQL (`sessions` table)
+- ✅ `useraccounts` table — upsert on every login (insert new, update returning)
+- ✅ `environment` table — key/value app settings, seeded with `maxuseraccounts=1`
+- ✅ `maxuseraccounts` limit enforced on new user login → `/problem` page
+- ✅ `/problem?msg=<text>` — general error page, XSS-safe, context-aware button
+- ✅ `/dashboard` — protected landing page with 2×4 icon grid
+- ✅ `/hello`, `/hellolog`, `/developer` (schema, stats, console, SQL exec)
+- ✅ `vetSQL()` gate on SQL execution
+- ✅ GitHub Actions CI/CD (test + prod pipelines)
 - ✅ Both MySQL instances always-on
-- ✅ 23 passing tests
+- ✅ 45 passing tests
+
+---
 
 ## What's Next (suggestions)
 
-- The 8 dashboard tiles (App, Source, Database, Formats, Functions, Documents, Status, Log) currently link to `#` — they need real pages/routes wired up
-- No user table yet — users are not persisted to DB, only held in session
-- No role-based access control
-- The `/developer` route has no auth — consider protecting it with `requireAuth`
+- **Raise `maxuseraccounts`** — currently `1`; run `UPDATE environment SET content = '10' WHERE name = 'maxuseraccounts'` in the DB console
+- **Wire up dashboard tiles** — 8 tiles (App, Source, Database, Formats, Functions, Documents, Status, Log) link to `#` — need real routes
+- **Protect `/developer`** — add `requireAuth` middleware to prevent unauthenticated SQL access
+- **Merge test → main** — deploy all recent changes (problem page, useraccounts limit, db_console, environment table) to production
+- **User role/permissions** — `useraccounts` has no role field yet; could add `role` enum (`admin`, `user`) for access control
