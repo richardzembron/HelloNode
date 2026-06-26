@@ -11,19 +11,17 @@ const developerRouter  = require('./routes/developer');
 const loginRouter      = require('./routes/login');
 const authRouter       = require('./routes/auth');
 const dashboardRouter  = require('./routes/dashboard');
+const problemRouter    = require('./routes/problem');
 
 const app = express();
 
-// ── Trust Fly.io / reverse-proxy headers ─────────────────────────────────────
-// Fly.io terminates HTTPS at the edge and forwards plain HTTP internally.
-// Without this, req.secure = false and express-session refuses to set the
-// session cookie with secure:true, breaking the OAuth flow in production.
+// Trust Fly.io / reverse-proxy headers so req.secure = true behind HTTPS edge
 app.set('trust proxy', 1);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ── Session store ─────────────────────────────────────────────────────────────
+// Session store
 const pool = getPool();
 const sessionConfig = {
   key:               'hellonode.sid',
@@ -44,33 +42,30 @@ if (pool) {
 }
 
 app.use(session(sessionConfig));
-
-// ── Passport ──────────────────────────────────────────────────────────────────
 app.use(passport.initialize());
 app.use(passport.session());
 
-// ── Routes ────────────────────────────────────────────────────────────────────
+// Routes
 app.use('/hello',     helloRouter);
 app.use('/hellolog',  hellologRouter);
 app.use('/developer', developerRouter);
 app.use('/login',     loginRouter);
 app.use('/auth',      authRouter);
 app.use('/dashboard', dashboardRouter);
+app.use('/problem',   problemRouter);
 
 app.get('/', (req, res) => {
   if (req.isAuthenticated()) return res.redirect('/dashboard');
   res.status(200).type('text').send(
     `HelloNode is running.\nEnvironment: ${process.env.NODE_ENV || 'development'}\n` +
-    `Routes: /hello  /hellolog  /developer  /login  /dashboard`
+    `Routes: /hello  /hellolog  /developer  /login  /dashboard  /problem`
   );
 });
 
-// 404
 app.use((req, res) => {
   res.status(404).type('text').send('Error: Not Found');
 });
 
-// Global error handler
 app.use((err, req, res, _next) => {
   console.error(err.stack);
   res.status(500).type('text').send('Error: Internal Server Error');
