@@ -79,14 +79,14 @@ describe('GET /developer', () => {
     expect(res.statusCode).toBe(400);
     expect(res.type).toMatch(/json/);
     expect(res.body.error).toMatch(/missing required query parameter/i);
-    expect(res.body.valid_commands).toEqual(['db_schema', 'db_statistics', 'db_console']);
+    expect(res.body.valid_commands).toEqual(['db', 'db_schema', 'db_statistics', 'db_console']);
   });
   it('returns 400 for an unknown cmd', async () => {
     const res = await request(app).get('/developer?cmd=drop_everything');
     expect(res.statusCode).toBe(400);
     expect(res.type).toMatch(/json/);
     expect(res.body.error).toMatch(/unknown command/i);
-    expect(res.body.valid_commands).toEqual(['db_schema', 'db_statistics', 'db_console']);
+    expect(res.body.valid_commands).toEqual(['db', 'db_schema', 'db_statistics', 'db_console']);
   });
   it('returns query_ts on every response', async () => {
     const before = new Date();
@@ -147,6 +147,21 @@ describe('GET /developer', () => {
     expect(res.text).toMatch(/Database Console/i);
     expect(res.text).toMatch(/sql-input/);
     expect(res.text).toMatch(/execute-btn/);
+  });
+  it('redirects to /login for db when not authenticated', async () => {
+    const res = await request(app).get('/developer?cmd=db');
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/login');
+  });
+  it('returns HTML for db when authenticated', async () => {
+    const agent = request.agent(app);
+    await agent.post('/auth/test-login');
+    const res = await agent.get('/developer?cmd=db');
+    expect(res.statusCode).toBe(200);
+    expect(res.type).toMatch(/html/);
+    expect(res.text).toMatch(/Database Management/i);
+    expect(res.text).toMatch(/table-select/);
+    expect(res.text).toMatch(/Test User/);
   });
 });
 
