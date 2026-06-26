@@ -6,8 +6,9 @@ const router = Router();
 
 /**
  * GET /hello?age=<number>
+ *
  * Returns plain text: "Hello World. World is <age> billion years old"
- * Optionally logs the request to MySQL if DB is available.
+ * Logs the request to MySQL if DB is available.
  */
 router.get('/hello', async (req, res) => {
   const { age } = req.query;
@@ -45,12 +46,55 @@ router.get('/hello', async (req, res) => {
 });
 
 /**
+ * GET /hellolog
+ *
+ * Returns JSON with:
+ *   - query_ts  : ISO timestamp of when this request was received
+ *   - count     : number of entries returned
+ *   - entries   : the 10 newest rows from hello_log, newest first
+ *
+ * Returns 503 if the database is not available.
+ */
+router.get('/hellolog', async (req, res) => {
+  const query_ts = new Date().toISOString();
+
+  const pool = getPool();
+  if (!pool) {
+    return res.status(503).json({
+      query_ts,
+      error: 'Database not available',
+    });
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id, age, message, created_at
+         FROM hello_log
+        ORDER BY created_at DESC, id DESC
+        LIMIT 10`
+    );
+
+    return res.status(200).json({
+      query_ts,
+      count: rows.length,
+      entries: rows,
+    });
+  } catch (err) {
+    console.error('hellolog query error:', err.message);
+    return res.status(500).json({
+      query_ts,
+      error: 'Database query failed',
+    });
+  }
+});
+
+/**
  * GET /
  * Health-check route.
  */
 router.get('/', (req, res) => {
   res.status(200).type('text').send(
-    `HelloNode is running.\nEnvironment: ${process.env.NODE_ENV || 'development'}\nUsage: GET /hello?age=<number>`
+    `HelloNode is running.\nEnvironment: ${process.env.NODE_ENV || 'development'}\nUsage: GET /hello?age=<number> | GET /hellolog`
   );
 });
 
