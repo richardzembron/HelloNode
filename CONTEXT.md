@@ -16,6 +16,7 @@ A Node.js + Express web application deployed on **Fly.io** with two environments
 - **Repo:** https://github.com/richardzembron/HelloNode
 - **Main branch** → auto-deploys to **production**
 - **Test branch** → auto-deploys to **test**
+- **Both branches are always in sync** — main is reset to match test after each feature
 - **CI:** GitHub Actions (`.github/workflows/`)
   - `ci.yml` — runs tests on every push (Node 18, 20, 22)
   - `deploy-prod.yml` — test + deploy to prod on push to `main`
@@ -85,6 +86,7 @@ flyctl secrets set KEY=value --app hellonodeprod # add/update
 HelloNode/
 ├── src/
 │   ├── app.js              # Express app — trust proxy, session, passport, routes
+│   │                       # Also: POST /auth/test-login (non-production only, for tests)
 │   ├── server.js           # Entry point — auto-migration then start
 │   ├── db.js               # MySQL pool (lazy, graceful fallback when no DB)
 │   ├── migrate.js          # Creates all tables + seeds environment rows
@@ -99,7 +101,7 @@ HelloNode/
 │       ├── dashboard.js    # GET /dashboard  (protected)
 │       └── problem.js      # GET /problem?msg=<text>
 ├── tests/
-│   └── app.test.js         # 45 Jest + Supertest tests
+│   └── app.test.js         # 50 Jest + Supertest tests
 ├── scripts/
 │   └── generate-certs.js   # Local HTTPS dev certs (openssl)
 ├── fly/
@@ -124,16 +126,16 @@ HelloNode/
 | `/auth/google` | GET | No | 302 → Google | Starts OAuth flow |
 | `/auth/google/callback` | GET | No | 302 | OAuth callback — checks limit → `/dashboard` or `/problem` |
 | `/auth/logout` | GET | No | 302 → `/login` | Destroys session + clears cookie |
+| `/auth/test-login` | POST | No | JSON | **Non-production only** — injects test session for Jest tests |
 | `/dashboard` | GET | **Yes** | HTML | 2×4 icon grid landing page; tiles link to `#` (not wired yet) |
 | `/problem?msg=<text>` | GET | No | HTML | General error page — button context-aware (login vs dashboard) |
 | `/hello?age=<n>` | GET | No | Plain text | `Hello World. World is N billion years old` — logs to DB |
 | `/hellolog` | GET | No | JSON | Last 10 `hello_log` rows + `query_ts` |
+| `/developer?cmd=db` | GET | **Yes** | HTML | Database Management page — table browser |
 | `/developer?cmd=db_schema` | GET | No | JSON | All tables + field definitions |
 | `/developer?cmd=db_statistics` | GET | No | JSON | Row counts, sizes, DB version, uptime, table count |
-| `/developer?cmd=db_console` | GET | No | HTML | Interactive SQL console (dark terminal UI) |
-| `/developer?cmd=db_cmd` | POST | No | JSON | Executes SQL — vetted by `vetSQL()` |
-
-> ⚠️ `/developer` routes have **no auth** — consider adding `requireAuth` before production use.
+| `/developer?cmd=db_console` | GET | **Yes** | HTML | Interactive SQL console (dark terminal UI) |
+| `/developer?cmd=db_cmd` | POST | **Yes** | JSON | Executes SQL — vetted by `vetSQL()` |
 
 ---
 
@@ -226,13 +228,21 @@ UPDATE environment SET content = '10' WHERE name = 'maxuseraccounts';
 
 ## Developer Routes
 
-### `GET /developer?cmd=db_console`
-Returns an interactive HTML SQL console. Dark terminal UI, same background as dashboard.
+### `GET /developer?cmd=db` ⚠️ Auth required
+Database Management page. Blue glassmorphism UI matching the dashboard style.
+- Topbar: logo (links to `/dashboard`), breadcrumb, user avatar + name, `← Dashboard` button
+- **Tables** dropdown — populated on load by fetching `db_schema` + `db_statistics` in parallel
+- On table select → shows 4 summary pills: **Table name**, **Fields**, **Rows**, **Size (kB)**
+- Excel-style field definition table: **Field Name** (mono), **Primary** (PK badge), **Type** (mono), **Size**
+- Loading spinner, empty state, error banner if DB unavailable
+
+### `GET /developer?cmd=db_console` ⚠️ Auth required
+Interactive SQL console. Dark terminal UI, same background as dashboard.
 - SQL input textarea (Ctrl+Enter to run)
 - Results displayed as formatted text table
 - Calls `POST /developer?cmd=db_cmd` via `fetch`
 
-### `POST /developer?cmd=db_cmd`
+### `POST /developer?cmd=db_cmd` ⚠️ Auth required
 Executes SQL against the database.
 
 **Request:** `{ "sql": "SELECT * FROM hello_log LIMIT 5" }`
@@ -245,6 +255,9 @@ Executes SQL against the database.
 - HTTP 400 — missing/blank SQL, not an SQL keyword
 - HTTP 403 — blocked by `vetSQL()`
 - HTTP 503 — DB unavailable
+
+### `GET /developer?cmd=db_schema` — public
+### `GET /developer?cmd=db_statistics` — public
 
 ### `vetSQL(sql)` — security gate (`src/routes/developer.js`)
 ```js
@@ -271,12 +284,25 @@ function vetSQL(sql) {
 
 ---
 
+## Testing
+
+- **50 tests** — Jest + Supertest, no DB required
+- `POST /auth/test-login` — test-only route (active when `NODE_ENV !== 'production'`) that injects a passport session directly, allowing authenticated route tests without a real OAuth flow
+- Tests use `request.agent(app)` to maintain session cookies across requests
+- All protected routes (`db`, `db_console`, `db_cmd`) have both unauthenticated (302) and authenticated tests
+
+```bash
+npm test   # runs all 50 tests
+```
+
+---
+
 ## Key Technical Decisions
 
 | Decision | Reason |
 |---|---|
 | `app.set('trust proxy', 1)` | Fly.io terminates TLS at edge; without this `req.secure=false` and session cookies fail |
-| `npm install` not `npm ci` | No `package-lock.json` committed |
+| `npm install` not `npm ci` | No `package-lock.json` committed; `cache: "npm"` removed from CI workflows |
 | `auto_stop_machines = false` on MySQL | Databases must not sleep |
 | Lazy DB pool (`getPool()`) | Tests run without DB — pool returns null, routes degrade gracefully |
 | Migration on startup | Idempotent `CREATE TABLE IF NOT EXISTS` — no manual step needed |
@@ -286,6 +312,9 @@ function vetSQL(sql) {
 | `vetSQL()` placeholder | SQL execution gated — expand with stricter rules later |
 | HTML-escape on `/problem` | XSS prevention — `msg` param is user-visible |
 | `user.blocked` flag | Set in passport strategy; checked in route handler to redirect to `/problem` |
+| Auth guard inline for `db`/`db_console` | `if (!req.isAuthenticated()) return res.redirect('/login')` inside GET handler |
+| Auth guard as middleware for `db_cmd` | `router.post('/', requireAuth, ...)` — cleaner for the POST route |
+| `POST /auth/test-login` gated by `NODE_ENV` | Enables authenticated Jest tests without exposing a backdoor in production |
 
 ---
 
@@ -298,23 +327,21 @@ npm install
 cp .env.example .env        # fill in DB_* and SESSION_SECRET
 npm run generate-certs       # optional — needs openssl
 npm start                    # http://localhost:3000 (or https://:3443 with certs)
-npm test                     # 45 tests, no DB required
+npm test                     # 50 tests, no DB required
 ```
 
 ---
 
 ## Deployment Workflow
 
-```bash
-# Deploy to test only:
-git checkout test
-git merge main               # or make changes directly on test
-git push origin test         # → CI tests → deploy to hellonodetest
+Both `main` and `test` branches are kept in sync. Features are built on `test`, then `main` is force-reset to match:
 
-# Promote test → production:
-git checkout main
-git merge test
-git push origin main         # → CI tests → deploy to hellonodeprod
+```bash
+# Push to test (triggers CI → deploy to hellonodetest):
+git push origin test
+
+# Sync main to match test exactly (triggers CI → deploy to hellonodeprod):
+git push origin test:main --force   # or reset main locally then push
 ```
 
 ---
@@ -341,18 +368,20 @@ flyctl apps list                         # all 4 apps
 - ✅ `maxuseraccounts` limit enforced on new user login → `/problem` page
 - ✅ `/problem?msg=<text>` — general error page, XSS-safe, context-aware button
 - ✅ `/dashboard` — protected landing page with 2×4 icon grid
-- ✅ `/hello`, `/hellolog`, `/developer` (schema, stats, console, SQL exec)
-- ✅ `vetSQL()` gate on SQL execution
-- ✅ GitHub Actions CI/CD (test + prod pipelines)
+- ✅ `/hello`, `/hellolog`
+- ✅ `/developer?cmd=db` — Database Management page (table browser, field inspector)
+- ✅ `/developer?cmd=db_schema`, `db_statistics` — public JSON endpoints
+- ✅ `/developer?cmd=db_console` — SQL console, auth-protected
+- ✅ `/developer?cmd=db_cmd` (POST) — SQL execution, auth-protected, vetted by `vetSQL()`
+- ✅ GitHub Actions CI/CD (test + prod pipelines, using `npm install`)
 - ✅ Both MySQL instances always-on
-- ✅ 45 passing tests
+- ✅ 50 passing tests
 
 ---
 
 ## What's Next (suggestions)
 
 - **Raise `maxuseraccounts`** — currently `1`; run `UPDATE environment SET content = '10' WHERE name = 'maxuseraccounts'` in the DB console
-- **Wire up dashboard tiles** — 8 tiles (App, Source, Database, Formats, Functions, Documents, Status, Log) link to `#` — need real routes
-- **Protect `/developer`** — add `requireAuth` middleware to prevent unauthenticated SQL access
-- **Merge test → main** — deploy all recent changes (problem page, useraccounts limit, db_console, environment table) to production
+- **Wire up dashboard tiles** — 8 tiles (App, Source, Database, Formats, Functions, Documents, Status, Log) link to `#` — need real routes; Database tile could link to `/developer?cmd=db`
 - **User role/permissions** — `useraccounts` has no role field yet; could add `role` enum (`admin`, `user`) for access control
+- **Stricter `vetSQL()`** — currently only blocks `DELETE EVERYTHING`; could add rules to block DROP, TRUNCATE, etc.
