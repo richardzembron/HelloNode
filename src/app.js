@@ -14,10 +14,16 @@ const dashboardRouter  = require('./routes/dashboard');
 
 const app = express();
 
+// ── Trust Fly.io / reverse-proxy headers ─────────────────────────────────────
+// Fly.io terminates HTTPS at the edge and forwards plain HTTP internally.
+// Without this, req.secure = false and express-session refuses to set the
+// session cookie with secure:true, breaking the OAuth flow in production.
+app.set('trust proxy', 1);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ── Session store ──────────────────────────────────────────────────────────────────────────
+// ── Session store ─────────────────────────────────────────────────────────────
 const pool = getPool();
 const sessionConfig = {
   key:               'hellonode.sid',
@@ -39,11 +45,11 @@ if (pool) {
 
 app.use(session(sessionConfig));
 
-// ── Passport ──────────────────────────────────────────────────────────────────────────────
+// ── Passport ──────────────────────────────────────────────────────────────────
 app.use(passport.initialize());
 app.use(passport.session());
 
-// ── Routes ───────────────────────────────────────────────────────────────────────────────
+// ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/hello',     helloRouter);
 app.use('/hellolog',  hellologRouter);
 app.use('/developer', developerRouter);
