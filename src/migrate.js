@@ -1,18 +1,18 @@
 'use strict';
 
-/**
- * DB migration — creates required tables if they don't exist.
- * Run on deployment: node src/migrate.js
- */
-
 require('dotenv').config();
 const { getPool } = require('./db');
 
-async function migrate() {
+/**
+ * Idempotent DB migration — creates required tables if they do not exist.
+ * Safe to call on every startup.
+ * Can also be run standalone: node src/migrate.js
+ */
+async function runMigration() {
   const pool = getPool();
   if (!pool) {
-    console.warn('No DB pool available — skipping migration.');
-    process.exit(0);
+    console.warn('\u26a0\ufe0f  No DB pool — skipping migration.');
+    return;
   }
 
   const conn = await pool.getConnection();
@@ -25,14 +25,22 @@ async function migrate() {
         created_at DATETIME       NOT NULL
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
-    console.log('✅  Migration complete — hello_log table ready.');
+    console.log('\u2705  Migration complete — hello_log table ready.');
   } finally {
     conn.release();
-    await pool.end();
   }
 }
 
-migrate().catch(err => {
-  console.error('Migration failed:', err);
-  process.exit(1);
-});
+module.exports = { runMigration };
+
+// Allow running directly: node src/migrate.js
+if (require.main === module) {
+  const { getPool } = require('./db');
+  runMigration()
+    .then(() => getPool()?.end())
+    .then(() => process.exit(0))
+    .catch(err => {
+      console.error('Migration failed:', err);
+      process.exit(1);
+    });
+}
