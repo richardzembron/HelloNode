@@ -1,8 +1,9 @@
-name: Deploy → Test
+name: Deploy to Test
 
 on:
   push:
     branches: ["test"]
+  workflow_dispatch:
 
 jobs:
   test:
