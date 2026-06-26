@@ -3,6 +3,12 @@
 const { Router } = require('express');
 const router = Router();
 
+// ── If already logged in, skip login and go straight to dashboard ─────────────
+router.get('/', (req, res, next) => {
+  if (req.isAuthenticated && req.isAuthenticated()) return res.redirect('/dashboard');
+  next();
+});
+
 const HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -84,6 +90,7 @@ const HTML = `<!DOCTYPE html>
       line-height: 1.35;
     }
 
+    /* ── Google button — now an <a> tag ── */
     .google-btn {
       display: flex;
       align-items: center;
@@ -98,6 +105,7 @@ const HTML = `<!DOCTYPE html>
       font-size: 14px;
       font-weight: 600;
       color: #3c4043;
+      text-decoration: none;           /* important for <a> */
       transition: all 0.18s ease;
       font-family: inherit;
       letter-spacing: 0.1px;
@@ -106,6 +114,7 @@ const HTML = `<!DOCTYPE html>
       background: #f8f9fa;
       border-color: #bdc1c6;
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+      color: #3c4043;
     }
     .google-btn:active { background: #f1f3f4; }
 
@@ -192,6 +201,17 @@ const HTML = `<!DOCTYPE html>
     }
     .submit-btn:active { transform: translateY(0); box-shadow: none; }
 
+    .error-msg {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: #dc2626;
+      text-align: center;
+      margin-bottom: 16px;
+    }
+
     .signup-row {
       text-align: center;
       margin-top: 20px;
@@ -226,25 +246,19 @@ const HTML = `<!DOCTYPE html>
           <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
         </filter>
       </defs>
-
       <rect width="1920" height="1080" fill="url(#bgGrad)"/>
       <rect width="1920" height="1080" fill="url(#centerGlow)"/>
-
-      <!-- Grid -->
       <g opacity="0.035" stroke="#3a6fff" stroke-width="1">
         <line x1="0" y1="108"  x2="1920" y2="108"/>  <line x1="0" y1="216"  x2="1920" y2="216"/>
         <line x1="0" y1="324"  x2="1920" y2="324"/>  <line x1="0" y1="432"  x2="1920" y2="432"/>
         <line x1="0" y1="540"  x2="1920" y2="540"/>  <line x1="0" y1="648"  x2="1920" y2="648"/>
         <line x1="0" y1="756"  x2="1920" y2="756"/>  <line x1="0" y1="864"  x2="1920" y2="864"/>
-        <line x1="0" y1="972"  x2="1920" y2="972"/>
         <line x1="192"  y1="0" x2="192"  y2="1080"/> <line x1="384"  y1="0" x2="384"  y2="1080"/>
         <line x1="576"  y1="0" x2="576"  y2="1080"/> <line x1="768"  y1="0" x2="768"  y2="1080"/>
         <line x1="960"  y1="0" x2="960"  y2="1080"/> <line x1="1152" y1="0" x2="1152" y2="1080"/>
         <line x1="1344" y1="0" x2="1344" y2="1080"/> <line x1="1536" y1="0" x2="1536" y2="1080"/>
         <line x1="1728" y1="0" x2="1728" y2="1080"/>
       </g>
-
-      <!-- RACK 1 left -->
       <g opacity="0.14" transform="translate(72,70)">
         <rect x="0" y="0" width="162" height="540" rx="7" fill="#091a56" stroke="#1e3fa0" stroke-width="2"/>
         <rect x="10" y="10" width="142" height="30" rx="4" fill="#0d2478"/>
@@ -268,8 +282,6 @@ const HTML = `<!DOCTYPE html>
         <rect x="10" y="498" width="142" height="30" rx="4" fill="#0d2478"/>
         <rect x="20" y="507" width="28" height="12" rx="2" fill="#091a56"/> <rect x="54" y="507" width="28" height="12" rx="2" fill="#091a56"/> <rect x="88" y="507" width="28" height="12" rx="2" fill="#091a56"/>
       </g>
-
-      <!-- RACK 2 right -->
       <g opacity="0.11" transform="translate(1650,140)">
         <rect x="0" y="0" width="152" height="490" rx="6" fill="#091a56" stroke="#1e3fa0" stroke-width="2"/>
         <rect x="10" y="10" width="132" height="28" rx="3" fill="#0d2478"/>
@@ -289,8 +301,6 @@ const HTML = `<!DOCTYPE html>
         <rect x="10" y="328" width="132" height="20" rx="2" fill="#0a1c60"/> <circle cx="132" cy="338" r="3.5" fill="#00ee77" filter="url(#led)"/>
         <rect x="10" y="450" width="132" height="28" rx="3" fill="#0d2478"/>
       </g>
-
-      <!-- RACK 3 far right partial -->
       <g opacity="0.07" transform="translate(1838,380)">
         <rect x="0" y="0" width="90" height="360" rx="5" fill="#091a56" stroke="#1e3fa0" stroke-width="1.5"/>
         <rect x="7" y="18" width="76" height="18" rx="2" fill="#0a1c60"/> <circle cx="76" cy="27" r="3" fill="#00ee77"/>
@@ -303,8 +313,6 @@ const HTML = `<!DOCTYPE html>
         <rect x="7" y="168" width="76" height="18" rx="2" fill="#0a1c60"/> <circle cx="76" cy="177" r="3" fill="#ffaa00"/>
         <rect x="7" y="190" width="76" height="18" rx="2" fill="#0a1c60"/> <circle cx="76" cy="199" r="3" fill="#00ee77"/>
       </g>
-
-      <!-- RACK 4 bottom left -->
       <g opacity="0.09" transform="translate(22,660)">
         <rect x="0" y="0" width="135" height="370" rx="6" fill="#091a56" stroke="#1e3fa0" stroke-width="1.5"/>
         <rect x="8" y="10" width="119" height="26" rx="3" fill="#0d2478"/>
@@ -319,8 +327,6 @@ const HTML = `<!DOCTYPE html>
         <rect x="8" y="206" width="119" height="20" rx="2" fill="#0a1c60"/> <circle cx="118" cy="216" r="3.5" fill="#00ee77" filter="url(#led)"/>
         <rect x="8" y="320" width="119" height="28" rx="3" fill="#0d2478"/>
       </g>
-
-      <!-- MATH SYMBOLS -->
       <g font-family="Georgia, 'Times New Roman', serif" fill="#5580ff">
         <text x="318"  y="118"  font-size="74" opacity="0.085">&#x3A3;</text>
         <text x="590"  y="96"   font-size="92" opacity="0.072">&#x222B;</text>
@@ -362,19 +368,21 @@ const HTML = `<!DOCTYPE html>
 
   <div class="page">
     <div class="card">
+
       <div class="logo-mark">
         <div class="logo-inner">
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
             <path d="M12 2L2 7l10 5 10-5-10-5z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M2 17l10 5 10-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M2 12l10 5 10-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 17l10 5 10-5"            stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 12l10 5 10-5"            stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </div>
       </div>
 
       <h1>Sign in to Your Account</h1>
 
-      <button class="google-btn" type="button">
+      <!-- ── Google Sign-In — links to /auth/google to start OAuth flow ── -->
+      <a href="/auth/google" class="google-btn">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="20" height="20">
           <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
           <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
@@ -382,18 +390,21 @@ const HTML = `<!DOCTYPE html>
           <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.34-8.16 2.34-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
         </svg>
         Continue with Google
-      </button>
+      </a>
 
       <div class="divider">or</div>
 
       <form action="#" onsubmit="return false;">
         <div class="form-group">
           <label for="email">Email address</label>
-          <input type="email" id="email" name="email" placeholder="you@example.com" autocomplete="email"/>
+          <input type="email" id="email" name="email"
+                 placeholder="you@example.com" autocomplete="email"/>
         </div>
         <div class="form-group">
           <label for="password">Password</label>
-          <input type="password" id="password" name="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" autocomplete="current-password"/>
+          <input type="password" id="password" name="password"
+                 placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"
+                 autocomplete="current-password"/>
         </div>
         <div class="forgot-row">
           <a href="#">Forgot password?</a>
@@ -404,6 +415,7 @@ const HTML = `<!DOCTYPE html>
       <div class="signup-row">
         Don&rsquo;t have an account? <a href="#">Sign up</a>
       </div>
+
     </div>
   </div>
 
