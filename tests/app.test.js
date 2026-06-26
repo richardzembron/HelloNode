@@ -89,6 +89,89 @@ describe('GET /hellolog', () => {
   });
 });
 
+describe('GET /developer', () => {
+  it('returns 400 when cmd is missing', async () => {
+    const res = await request(app).get('/developer');
+    expect(res.statusCode).toBe(400);
+    expect(res.type).toMatch(/json/);
+    expect(res.body.error).toMatch(/missing required query parameter/i);
+    expect(res.body.valid_commands).toEqual(['db_schema', 'db_statistics']);
+  });
+
+  it('returns 400 for an unknown cmd', async () => {
+    const res = await request(app).get('/developer?cmd=drop_everything');
+    expect(res.statusCode).toBe(400);
+    expect(res.type).toMatch(/json/);
+    expect(res.body.error).toMatch(/unknown command/i);
+    expect(res.body.valid_commands).toEqual(['db_schema', 'db_statistics']);
+  });
+
+  it('returns query_ts on every response', async () => {
+    const before = new Date();
+    const res = await request(app).get('/developer?cmd=db_schema');
+    const after = new Date();
+
+    expect(res.body).toHaveProperty('query_ts');
+    const ts = new Date(res.body.query_ts);
+    expect(ts.getTime()).toBeGreaterThanOrEqual(before.getTime() - 10);
+    expect(ts.getTime()).toBeLessThanOrEqual(after.getTime() + 10);
+  });
+
+  it('returns 503 when DB is unavailable (db_schema)', async () => {
+    const pool = require('../src/db').getPool();
+    if (pool) return;
+
+    const res = await request(app).get('/developer?cmd=db_schema');
+    expect(res.statusCode).toBe(503);
+    expect(res.body.error).toMatch(/database not available/i);
+  });
+
+  it('returns 503 when DB is unavailable (db_statistics)', async () => {
+    const pool = require('../src/db').getPool();
+    if (pool) return;
+
+    const res = await request(app).get('/developer?cmd=db_statistics');
+    expect(res.statusCode).toBe(503);
+    expect(res.body.error).toMatch(/database not available/i);
+  });
+
+  it('returns correct schema shape when DB is available', async () => {
+    const pool = require('../src/db').getPool();
+    if (!pool) return;
+
+    const res = await request(app).get('/developer?cmd=db_schema');
+    expect(res.statusCode).toBe(200);
+    expect(res.body.cmd).toBe('db_schema');
+    expect(Array.isArray(res.body.schema)).toBe(true);
+
+    const table = res.body.schema[0];
+    expect(table).toHaveProperty('table');
+    expect(Array.isArray(table.fields)).toBe(true);
+
+    const field = table.fields[0];
+    expect(field).toHaveProperty('name');
+    expect(field).toHaveProperty('type');
+    expect(field).toHaveProperty('size');
+    expect(field).toHaveProperty('primary');
+    expect(field).toHaveProperty('nullable');
+  });
+
+  it('returns correct statistics shape when DB is available', async () => {
+    const pool = require('../src/db').getPool();
+    if (!pool) return;
+
+    const res = await request(app).get('/developer?cmd=db_statistics');
+    expect(res.statusCode).toBe(200);
+    expect(res.body.cmd).toBe('db_statistics');
+    expect(Array.isArray(res.body.statistics)).toBe(true);
+
+    const stat = res.body.statistics[0];
+    expect(stat).toHaveProperty('table');
+    expect(stat).toHaveProperty('rows');
+    expect(stat).toHaveProperty('size_kb');
+  });
+});
+
 describe('GET /unknown-route', () => {
   it('returns 404 for unknown routes', async () => {
     const res = await request(app).get('/unknown-route');
